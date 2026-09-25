@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
     $python = ".\.venv\Scripts\python.exe"
-    & $python scripts/task3_data.py
+    & $python -m scripts.task3_data
     if ($LASTEXITCODE -ne 0) { throw "Dataset inspection failed" }
 
     & $python -m scripts.chat_eval -i base -g task2-d2 -s 420 -a "ARC-Easy|ARC-Challenge|GSM8K" --output-file=report/task3_base.json
