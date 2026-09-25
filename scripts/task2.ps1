@@ -15,7 +15,11 @@ try {
         --sample-every=-1 `
         --save-every=100 `
         --model-tag=task2-d2 `
+        --log-file=report/task2_metrics.jsonl `
         --run=task2-d2
+    if ($LASTEXITCODE -eq 0) {
+        & ".\.venv\Scripts\python.exe" scripts/task2_plot.py
+    }
 }
 finally {
     Pop-Location
