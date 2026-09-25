@@ -1,0 +1,133 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=1.8cm]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+
+\section{Task 0: Model Hub warm-up}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}p{2.4cm}p{2.3cm}Yp{2.0cm}Yp{2.3cm}@{}}
+\toprule
+Model ID & Training tokens or steps & Architecture & Trainable parameters & Training data & Sources \\
+\midrule
+\texttt{allenai/OLMo-1B}
+& 3 trillion tokens
+& 16 layers; hidden size 2,048; 16 attention heads
+& Approximately 1.2B
+& Dolma v1.5: web content, academic publications, code, books, and encyclopedic material
+& \href{https://huggingface.co/allenai/OLMo-1B}{Model card};
+  \href{https://huggingface.co/allenai/OLMo-1B/blob/main/config.json}{config.json};
+  \href{https://huggingface.co/datasets/allenai/dolma}{Dolma card} \\
+\addlinespace
+\texttt{HuggingFaceTB/\allowbreak SmolLM2-360M}
+& 4 trillion tokens
+& 32 layers; hidden size 960; 15 query heads and 5 key/value heads
+& Approximately 362M
+& FineWeb-Edu, DCLM, The Stack, and additional filtered datasets curated by Hugging Face
+& \href{https://huggingface.co/HuggingFaceTB/SmolLM2-360M}{Model card};
+  \href{https://huggingface.co/HuggingFaceTB/SmolLM2-360M/blob/main/config.json}{config.json};
+  \href{https://arxiv.org/abs/2502.02737}{report} \\
+\addlinespace
+\texttt{Qwen/\allowbreak Qwen2.5-0.5B}
+& 18 trillion tokens for the Qwen2.5 series; no separate 0.5B count is published
+& 24 layers; hidden size 896; grouped-query attention with 14 query heads and 2 key/value heads
+& 0.49B total; 0.36B excluding embeddings
+& Filtered multilingual data emphasizing knowledge, mathematics, and code, including synthetic data; the exact corpus list is not disclosed
+& \href{https://huggingface.co/Qwen/Qwen2.5-0.5B}{Model card};
+  \href{https://huggingface.co/Qwen/Qwen2.5-0.5B/blob/main/config.json}{config.json};
+  \href{https://arxiv.org/abs/2412.15115}{report} \\
+\bottomrule
+\end{tabularx}
+\caption{Model IDs for the Hub warm-up exercise.}
+\label{tab:model-hub-warmup}
+\end{table}
+
+The model cards provide training-token totals and summarized model details.
+The configuration files provide layer counts, hidden dimensions, and
+attention-head configurations. Dataset cards and technical reports provide
+the training-data descriptions. Qwen's report describes data categories and
+curation methods, but does not publish a complete list of source corpora.
+
+\clearpage
+\section{Task 1: Tokenization}
+
+Two byte-level BPE tokenizers were trained on the same 500-million-character
+CLIMBMix sample, with vocabularies of 8,192 and 32,768 tokens. BPE begins with
+bytes and repeatedly replaces the most frequent adjacent pair with a new
+symbol. Unlike a word vocabulary it can represent unseen words, while its
+learned multi-byte units produce shorter sequences than character-level
+tokenization.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+& Characters & \multicolumn{2}{c}{8,192} & \multicolumn{2}{c}{32,768} \\
+Sample & & Tokens & Tokens/char & Tokens & Tokens/char \\
+\midrule
+English & 87 & 17 & 0.1954 & 15 & 0.1724 \\
+Numbers & 64 & 32 & 0.5000 & 31 & 0.4844 \\
+Python & 64 & 32 & 0.5000 & 26 & 0.4062 \\
+Dutch & 67 & 28 & 0.4179 & 23 & 0.3433 \\
+\bottomrule
+\end{tabular}
+\caption{Token counts on fixed held-out examples. Lower tokens/character is better.}
+\label{tab:tokenizer-compression}
+\end{table}
+
+\begin{minipage}[t]{0.47\textwidth}
+\textbf{Merge example.} For the original corpus
+\texttt{banana bandana banana}, one possible tie-breaking order is:
+\texttt{a+n $\rightarrow$ an} [6],
+\texttt{b+an $\rightarrow$ ban} [3],
+\texttt{an+a $\rightarrow$ ana} [3], and
+\texttt{ban+ana $\rightarrow$ banana} [2]. The bracketed value is the pair
+count when that merge is made.
+
+\begin{verbatim}
+banana [2]
+|-- ban [3]
+|   |-- b
+|   `-- an [6] = a + n
+`-- ana [3]
+    |-- an [6]
+    `-- a
+\end{verbatim}
+
+The 32K tokenizer reduced the English sequence by two tokens (11.8\%) because
+it learned whole units such as \texttt{learns} and \texttt{matters}; the 8K
+model split these into \texttt{lear+ns} and \texttt{matter+s}.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.50\textwidth}
+\textbf{Downstream trade-off.} A larger vocabulary shortens sequences, but
+the embedding and output matrices grow linearly with vocabulary size. It also
+increases the softmax denominator: every prediction must distribute
+probability over more classes. Rare merged tokens receive fewer updates, so
+their representations can be less reliable. A smaller vocabulary reverses
+these trade-offs but requires more transformer steps for the same text.
+
+\textbf{Artifacts.} Numbers remained fragmented into one- or two-digit units,
+for example \texttt{20|26|-|09|17}; this follows nanochat's numeric split
+pattern. Code improved most when moving to 32K (32 to 26 tokens), which learned
+pieces such as \texttt{def}, \texttt{ cube}, and \texttt{(n}, while identifiers
+and punctuation still split around \texttt{\_}, brackets, and spaces. Dutch
+also improved, but remained more fragmented than English
+(\texttt{tre|in}, \texttt{re|kt}, \texttt{ach|t}), consistent with less useful
+merge coverage. Byte-level fallback prevented unknown tokens in every sample.
+\end{minipage}
+
+\end{document}
