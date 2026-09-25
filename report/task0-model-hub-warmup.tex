@@ -1,0 +1,63 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=1.8cm]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+
+\section{Task 0: Model Hub warm-up}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}p{2.4cm}p{2.3cm}Yp{2.0cm}Yp{2.3cm}@{}}
+\toprule
+Model ID & Training tokens or steps & Architecture & Trainable parameters & Training data & Sources \\
+\midrule
+\texttt{allenai/OLMo-1B}
+& 3 trillion tokens
+& 16 layers; hidden size 2,048; 16 attention heads
+& Approximately 1.2B
+& Dolma v1.5: web content, academic publications, code, books, and encyclopedic material
+& \href{https://huggingface.co/allenai/OLMo-1B}{Model card};
+  \href{https://huggingface.co/allenai/OLMo-1B/blob/main/config.json}{config.json};
+  \href{https://huggingface.co/datasets/allenai/dolma}{Dolma card} \\
+\addlinespace
+\texttt{HuggingFaceTB/\allowbreak SmolLM2-360M}
+& 4 trillion tokens
+& 32 layers; hidden size 960; 15 query heads and 5 key/value heads
+& Approximately 362M
+& FineWeb-Edu, DCLM, The Stack, and additional filtered datasets curated by Hugging Face
+& \href{https://huggingface.co/HuggingFaceTB/SmolLM2-360M}{Model card};
+  \href{https://huggingface.co/HuggingFaceTB/SmolLM2-360M/blob/main/config.json}{config.json};
+  \href{https://arxiv.org/abs/2502.02737}{report} \\
+\addlinespace
+\texttt{Qwen/\allowbreak Qwen2.5-0.5B}
+& 18 trillion tokens for the Qwen2.5 series; no separate 0.5B count is published
+& 24 layers; hidden size 896; grouped-query attention with 14 query heads and 2 key/value heads
+& 0.49B total; 0.36B excluding embeddings
+& Filtered multilingual data emphasizing knowledge, mathematics, and code, including synthetic data; the exact corpus list is not disclosed
+& \href{https://huggingface.co/Qwen/Qwen2.5-0.5B}{Model card};
+  \href{https://huggingface.co/Qwen/Qwen2.5-0.5B/blob/main/config.json}{config.json};
+  \href{https://arxiv.org/abs/2412.15115}{report} \\
+\bottomrule
+\end{tabularx}
+\caption{Model IDs for the Hub warm-up exercise.}
+\label{tab:model-hub-warmup}
+\end{table}
+
+The model cards provide training-token totals and summarized model details.
+The configuration files provide layer counts, hidden dimensions, and
+attention-head configurations. Dataset cards and technical reports provide
+the training-data descriptions. Qwen's report describes data categories and
+curation methods, but does not publish a complete list of source corpora.
+
+\end{document}
