@@ -1,10 +1,13 @@
 \documentclass[10pt,a4paper]{article}
 
 \usepackage[margin=1.8cm]{geometry}
+\usepackage{amsmath}
 \usepackage{array}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{tabularx}
 \usepackage[hidelinks]{hyperref}
+\graphicspath{{./}{report/}}
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{4pt}
@@ -129,5 +132,112 @@ also improved, but remained more fragmented than English
 (\texttt{tre|in}, \texttt{re|kt}, \texttt{ach|t}), consistent with less useful
 merge coverage. Byte-level fallback prevented unknown tokens in every sample.
 \end{minipage}
+
+\clearpage
+\section{Task 2: Pre-Training}
+
+\subsection*{Depth and run configuration}
+
+The model was pre-trained on CLIMBMix with \texttt{--depth=2}. Depth directly
+sets the number of transformer blocks. Nanochat first computes a base width of
+$64d$, rounds it to a multiple of the 128-dimensional attention head, and sets
+the number of heads to width divided by 128. Thus $d=2$ gives width 128 and one
+query/key-value head. The same dial also determines the parameter count used
+for the training horizon. Nanochat then derives the token batch from its batch
+scaling rule and adjusts learning rates and weight decay for that batch and
+width. It uses 40 warmup steps followed by a constant phase and a linear
+warmdown over the final 65\% of training. The run used full-context attention
+because the local Windows CUDA
+installation used PyTorch SDPA rather than Flash Attention 3.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}lr@{\qquad}lr@{}}
+\toprule
+Transformer layers & 2 & Context length & 2,048 \\
+Attention heads & 1 & Vocabulary & 32,768 \\
+Embedding width & 128 & Trainable parameters & 12,976,170 \\
+Scaling parameters & 4,587,532 & Token batch & 131,072 \\
+Training steps & 420 & Training tokens & 55,050,240 \\
+\bottomrule
+\end{tabular}
+\caption{Depth-2 model and training configuration. Training took 36.1 minutes.}
+\label{tab:task2-config}
+\end{table}
+
+A single complexity dial makes model-size sweeps simple and reproducible: a
+depth can be selected without separately finding a compatible width, head
+count, batch size, and schedule. Its limitation is that these coupled rules
+may not be optimal for a particular dataset, hardware budget, or architectural
+choice. Independent tuning could find a better width/depth balance or training
+horizon, at the cost of a much larger search space.
+
+\subsection*{Scaling-law comparison}
+
+The Chinchilla rule of thumb is approximately 20 training tokens per parameter
+\href{https://arxiv.org/abs/2203.15556}{(Hoffmann et al., 2022)}. Using all
+12,976,170 trainable parameters gives
+\[
+D_{\mathrm{Chinchilla}} \approx 20N = 259,523,400\ \text{tokens}.
+\]
+Nanochat instead applies its default ratio of 12 to 4,587,532 ``scaling
+parameters'' (transformer matrices plus the language-model head), excluding
+the embedding and value-embedding tables. Its target is therefore 55,050,384
+tokens; rounding to complete 131,072-token batches produced 55,050,240 tokens.
+This is 21.2\% of the $20N$ estimate, so the model is under-trained relative to
+the Chinchilla heuristic. Under-training means using fewer tokens than the
+compute-optimal allocation for a model size; over-training means spending more
+tokens after a smaller model would have been the more compute-efficient choice.
+The comparison is approximate because nanochat deliberately counts parameters
+differently.
+
+\subsection*{Bits-per-byte analysis}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.58\textwidth]{task2_bpb.png}
+\caption{Training and validation bpb, re-evaluated on fixed 1,048,576-token
+splits at each saved checkpoint. Lower is better.}
+\label{fig:task2-bpb}
+\end{figure}
+
+Both curves decrease quickly and then flatten. Validation bpb improves from
+1.655 at step 100 to 1.470, 1.374, 1.335, and 1.330 at steps 200, 300, 400,
+and 420. The gain per 100 steps falls from 0.185 to 0.095 and then 0.040, so
+flattening is visible after roughly step 300 and is strongest near step 400.
+Training bpb follows the same shape, falling from 1.672 to 1.354. Validation
+bpb remains about 0.02 lower than the fixed training slice. This small reversed
+gap gives no evidence of overfitting; it more likely reflects a slightly easier
+validation shard or sampling variation between the two fixed slices.
+
+\subsection*{Qualitative inspection}
+
+Five greedy 16-token continuations were sampled from the final base checkpoint
+with a beginning-of-sequence token and plain text only, without a system prompt
+or chat template:
+
+\begin{enumerate}
+\small
+\item \textbf{The capital of France is} --- ``a world of France. The world of
+France is a world of France and France''
+\item \textbf{The chemical symbol of gold is} --- ``a chemical symbol of gold
+and gold. The gold is a chemical symbol of gold''
+\item \textbf{If yesterday was Friday, then tomorrow will be} --- ``a week,
+and the day will be the first week. The week will be''
+\item \textbf{The opposite of hot is} --- ``the most common cause of the most
+common cause of the most common cause of the''
+\item \textbf{The planets of the solar system are:} --- ``the sun's sun's
+sun's sun's sun's sun's sun's sun''
+\end{enumerate}
+
+The model has learned local English syntax and topical associations: the
+outputs stay near words such as France, gold, week, and sun. It has not learned
+reliable facts or simple temporal reasoning, and several outputs collapse into
+repetition. This is expected from a two-layer, 13-million-parameter base model
+trained for only 55 million tokens. It has also received next-token
+pre-training only, so it has not been taught instruction following or dialogue
+behaviour. The final saved model is \texttt{model\_000420.pt} under the
+\texttt{task2-d2} checkpoint tag.
 
 \end{document}

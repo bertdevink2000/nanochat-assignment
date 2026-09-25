@@ -1,0 +1,5 @@
+{"step": 100, "train/bpb": 1.672080, "val/bpb": 1.655206}
+{"step": 200, "train/bpb": 1.491466, "val/bpb": 1.469843}
+{"step": 300, "train/bpb": 1.398444, "val/bpb": 1.374498}
+{"step": 400, "train/bpb": 1.359146, "val/bpb": 1.334855}
+{"step": 420, "train/bpb": 1.354474, "val/bpb": 1.330301}
