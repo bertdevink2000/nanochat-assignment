@@ -1,27 +1,46 @@
-\documentclass[10pt,a4paper]{article}
+\documentclass{article}
 
-\usepackage[margin=1.8cm]{geometry}
+\usepackage{microtype}
 \usepackage{amsmath}
 \usepackage{array}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{tabularx}
-\usepackage[hidelinks]{hyperref}
+\usepackage{hyperref}
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\usepackage[accepted]{icml2021}
 \graphicspath{{./}{report/}}
 
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{4pt}
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.12}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\icmltitlerunning{Assignment 1: Building LLMs from Scratch}
 
 \begin{document}
 
+\twocolumn[
+\icmltitle{Assignment 1: Building LLMs from Scratch}
+\begin{center}
+\textbf{Bert de Vink} \qquad Student number: \texttt{s2657384}
+\end{center}
+\vskip 0.15in
+]
+
+\textbf{Artifacts.} Code and reproduction scripts:
+\url{https://github.com/bertdevink2000/nanochat-assignment}. Experiment outputs:
+\url{https://github.com/bertdevink2000/nanochat-assignment/tree/master/report}.
+Model checkpoints and metadata:
+\url{https://github.com/bertdevink2000/nanochat-assignment/releases/tag/assignment1-checkpoints}.
+
+\textbf{Reproducibility.} GPU: NVIDIA RTX 5060 Ti; random seed: 42, set by
+\texttt{compute\_init}; repository snapshot:
+\href{https://github.com/bertdevink2000/nanochat-assignment/commit/400de7a951f128feb8ab5748681102d43bcab4c5}{\texttt{400de7a}}.
+
 \section{Task 0: Model Hub warm-up}
 
-\begin{table}[ht]
+\begin{table*}[t]
 \centering
 \footnotesize
+\caption{Model IDs for the Hub warm-up exercise.}
+\label{tab:model-hub-warmup}
 \begin{tabularx}{\textwidth}{@{}p{2.4cm}p{2.3cm}Yp{2.0cm}Yp{2.3cm}@{}}
 \toprule
 Model ID & Training tokens or steps & Architecture & Trainable parameters & Training data & Sources \\
@@ -54,9 +73,7 @@ Model ID & Training tokens or steps & Architecture & Trainable parameters & Trai
   \href{https://arxiv.org/abs/2412.15115}{report} \\
 \bottomrule
 \end{tabularx}
-\caption{Model IDs for the Hub warm-up exercise.}
-\label{tab:model-hub-warmup}
-\end{table}
+\end{table*}
 
 The model cards provide training-token totals and summarized model details.
 The configuration files provide layer counts, hidden dimensions, and
@@ -64,19 +81,20 @@ attention-head configurations. Dataset cards and technical reports provide
 the training-data descriptions. Qwen's report describes data categories and
 curation methods, but does not publish a complete list of source corpora.
 
-\clearpage
 \section{Task 1: Tokenization}
 
-Two byte-level BPE tokenizers were trained on the same 500-million-character
+Two byte-level BPE tokenizers were trained on the same approximately 500 MB
 CLIMBMix sample, with vocabularies of 8,192 and 32,768 tokens. BPE begins with
 bytes and repeatedly replaces the most frequent adjacent pair with a new
 symbol. Unlike a word vocabulary it can represent unseen words, while its
 learned multi-byte units produce shorter sequences than character-level
 tokenization.
 
-\begin{table}[ht]
+\begin{table*}[t]
 \centering
 \small
+\caption{Token counts on fixed held-out examples. Lower tokens/character is better.}
+\label{tab:tokenizer-compression}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 & Characters & \multicolumn{2}{c}{8,192} & \multicolumn{2}{c}{32,768} \\
@@ -88,34 +106,34 @@ Python & 64 & 32 & 0.5000 & 26 & 0.4062 \\
 Dutch & 67 & 28 & 0.4179 & 23 & 0.3433 \\
 \bottomrule
 \end{tabular}
-\caption{Token counts on fixed held-out examples. Lower tokens/character is better.}
-\label{tab:tokenizer-compression}
-\end{table}
+\end{table*}
 
-\begin{minipage}[t]{0.47\textwidth}
-\textbf{Merge example.} For the original corpus
-\texttt{banana bandana banana}, one possible tie-breaking order is:
-\texttt{a+n $\rightarrow$ an} [6],
-\texttt{b+an $\rightarrow$ ban} [3],
-\texttt{an+a $\rightarrow$ ana} [3], and
-\texttt{ban+ana $\rightarrow$ banana} [2]. The bracketed value is the pair
+\textbf{Merge example.} Running the BPE merge procedure with left-to-right
+tie-breaking on the toy corpus \texttt{Leiden vertrekt Leiden}, taken from the
+Dutch evaluation sample, produced this sequence:
+\texttt{L+e $\rightarrow$ Le} [2],
+\texttt{Le+i $\rightarrow$ Lei} [2],
+\texttt{Lei+d $\rightarrow$ Leid} [2],
+\texttt{Leid+e $\rightarrow$ Leide} [2], and
+\texttt{Leide+n $\rightarrow$ Leiden} [2]. The bracketed value is the pair
 count when that merge is made.
 
 \begin{verbatim}
-banana [2]
-|-- ban [3]
-|   |-- b
-|   `-- an [6] = a + n
-`-- ana [3]
-    |-- an [6]
-    `-- a
+Leiden [2]
+|-- Leide [2]
+|   |-- Leid [2]
+|   |   |-- Lei [2]
+|   |   |   |-- Le [2] = L + e
+|   |   |   `-- i
+|   |   `-- d
+|   `-- e
+`-- n
 \end{verbatim}
 
 The 32K tokenizer reduced the English sequence by two tokens (11.8\%) because
 it learned whole units such as \texttt{learns} and \texttt{matters}; the 8K
 model split these into \texttt{lear+ns} and \texttt{matter+s}.
-\end{minipage}\hfill
-\begin{minipage}[t]{0.50\textwidth}
+
 \textbf{Downstream trade-off.} A larger vocabulary shortens sequences, but
 the embedding and output matrices grow linearly with vocabulary size. It also
 increases the softmax denominator: every prediction must distribute
@@ -131,12 +149,10 @@ and punctuation still split around \texttt{\_}, brackets, and spaces. Dutch
 also improved, but remained more fragmented than English
 (\texttt{tre|in}, \texttt{re|kt}, \texttt{ach|t}), consistent with less useful
 merge coverage. Byte-level fallback prevented unknown tokens in every sample.
-\end{minipage}
 
-\clearpage
 \section{Task 2: Pre-Training}
 
-\subsection*{Depth and run configuration}
+\subsection{Depth and run configuration}
 
 The model was pre-trained on CLIMBMix with \texttt{--depth=2}. Depth directly
 sets the number of transformer blocks. Nanochat first computes a base width of
@@ -153,6 +169,9 @@ installation used PyTorch SDPA rather than Flash Attention 3.
 \begin{table}[ht]
 \centering
 \small
+\caption{Depth-2 model and training configuration. Training took 36.1 minutes.}
+\label{tab:task2-config}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{@{}lr@{\qquad}lr@{}}
 \toprule
 Transformer layers & 2 & Context length & 2,048 \\
@@ -162,8 +181,7 @@ Scaling parameters & 4,587,532 & Token batch & 131,072 \\
 Training steps & 420 & Training tokens & 55,050,240 \\
 \bottomrule
 \end{tabular}
-\caption{Depth-2 model and training configuration. Training took 36.1 minutes.}
-\label{tab:task2-config}
+}
 \end{table}
 
 A single complexity dial makes model-size sweeps simple and reproducible: a
@@ -173,7 +191,7 @@ may not be optimal for a particular dataset, hardware budget, or architectural
 choice. Independent tuning could find a better width/depth balance or training
 horizon, at the cost of a much larger search space.
 
-\subsection*{Scaling-law comparison}
+\subsection{Scaling-law comparison}
 
 The Chinchilla rule of thumb is approximately 20 training tokens per parameter
 \href{https://arxiv.org/abs/2203.15556}{(Hoffmann et al., 2022)}. Using all
@@ -192,11 +210,11 @@ tokens after a smaller model would have been the more compute-efficient choice.
 The comparison is approximate because nanochat deliberately counts parameters
 differently.
 
-\subsection*{Bits-per-byte analysis}
+\subsection{Bits-per-byte analysis}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.58\textwidth]{task2_bpb.png}
+\includegraphics[width=\columnwidth,draft=false]{task2_bpb.png}
 \caption{Training and validation bpb, re-evaluated on fixed 1,048,576-token
 splits at each saved checkpoint. Lower is better.}
 \label{fig:task2-bpb}
@@ -211,7 +229,7 @@ bpb remains about 0.02 lower than the fixed training slice. This small reversed
 gap gives no evidence of overfitting; it more likely reflects a slightly easier
 validation shard or sampling variation between the two fixed slices.
 
-\subsection*{Qualitative inspection}
+\subsection{Qualitative inspection}
 
 Five greedy 16-token continuations were sampled from the final base checkpoint
 with a beginning-of-sequence token and plain text only, without a system prompt
@@ -240,10 +258,9 @@ pre-training only, so it has not been taught instruction following or dialogue
 behaviour. The final saved model is \texttt{model\_000420.pt} under the
 \texttt{task2-d2} checkpoint tag.
 
-\clearpage
 \section{Task 3: Mid-Training and Supervised Fine-Tuning}
 
-\subsection*{Implementation and configuration}
+\subsection{Implementation and configuration}
 
 I added a \texttt{--stage} switch to \texttt{chat\_sft.py}. In
 \texttt{midtrain} mode the training mixture contains only MMLU and GSM8K and
@@ -264,7 +281,7 @@ linear decay over the final 50\% to zero. Validation bpb was measured every 100
 steps on 1,048,576 tokens. On their stage-specific validation mixtures, Stage 1
 ended after 928 steps at 0.928 bpb and Stage 2 after 2,869 steps at 0.758 bpb.
 
-\subsection*{Loss masking}
+\subsection{Loss masking}
 
 For tokens $x_1,\ldots,x_T$, ordinary next-token training averages
 $-\log p(x_t\mid x_{<t})$ over every target. SFT instead uses a binary mask
@@ -276,9 +293,11 @@ $m_t$:
 For the conversation "User: What is $2+2$? Assistant: 4", the effective groups
 are:
 
-\begin{table}[ht]
+\begin{table*}[t]
 \centering
 \small
+\caption{Concrete SFT mask; it is shifted once when aligned with next-token targets.}
+\label{tab:sft-mask}
 \begin{tabular}{@{}lccccc@{}}
 \toprule
 Token group & \texttt{<bos>} & User markers + question & \texttt{<assistant\_start>}
@@ -287,9 +306,7 @@ Token group & \texttt{<bos>} & User markers + question & \texttt{<assistant\_sta
 Loss mask & 0 & 0 & 0 & 1 & 1 \\
 \bottomrule
 \end{tabular}
-\caption{Concrete SFT mask; it is shifted once when aligned with next-token targets.}
-\label{tab:sft-mask}
-\end{table}
+\end{table*}
 
 Without masking, the model is rewarded for reproducing the user question and
 chat-control tokens as well as the answer. Long prompts can then dominate the
@@ -298,7 +315,7 @@ concentrates the update on assistant text and its end marker. Nanochat also
 masks padding and Python-tool outputs, because tool outputs are supplied by the
 runtime rather than generated by the assistant.
 
-\subsection*{Datasets}
+\subsection{Datasets}
 
 Before training, I printed three rows from every dataset. MMLU rows are
 multiple-choice questions rendered as a user prompt followed by the correct
@@ -306,9 +323,11 @@ answer letter. GSM8K rows contain an English grade-school word problem and an
 assistant solution with intermediate reasoning or calculator calls. SmolTalk
 rows are general user--assistant conversations, sometimes with multiple turns.
 
-\begin{table}[ht]
+\begin{table*}[t]
 \centering
 \small
+\caption{Task 3 training data. The Stage 1 mixture contains 329,418 rows.}
+\label{tab:task3-data}
 \begin{tabularx}{\textwidth}{@{}llrrY@{}}
 \toprule
 Stage & Dataset & Unique rows & Mixture rows & Purpose \\
@@ -321,9 +340,7 @@ SFT & SmolTalk train & 460,341 & 460,341
 & General dialogue and instruction-following behaviour \\
 \bottomrule
 \end{tabularx}
-\caption{Task 3 training data. The Stage 1 mixture contains 329,418 rows.}
-\label{tab:task3-data}
-\end{table}
+\end{table*}
 
 The split follows the intended separation: Stage 1 first adapts the base model
 to knowledge and reasoning, while Stage 2 changes its interaction style using
@@ -337,11 +354,13 @@ copied into the fine-tuned model. The resulting assistant may therefore favour
 polished English dialogue and benchmark-shaped answers over other languages,
 cultures, or less structured reasoning.
 
-\subsection*{Benchmark results}
+\subsection{Benchmark results}
 
 \begin{table}[ht]
 \centering
 \small
+\caption{Full-test-set accuracy at all three stages.}
+\label{tab:task3-results}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
 Checkpoint & ARC-Easy & ARC-Challenge & GSM8K \\
@@ -351,14 +370,12 @@ After mid-training & 25.38\% & 25.60\% & 0.91\% \\
 After SmolTalk SFT & 25.04\% & 23.21\% & 0.00\% \\
 \bottomrule
 \end{tabular}
-\caption{Full-test-set accuracy at all three stages.}
-\label{tab:task3-results}
 \end{table}
 
 Mid-training changed ARC-Easy by $-1.05$ percentage points, ARC-Challenge by
 $+1.37$, and GSM8K by $+0.91$ relative to the base model. The small GSM8K gain
-is directionally consistent with training on GSM8K, but ARC remains around the
-25\% four-choice chance level. After SmolTalk SFT, the scores fell by a further
+is directionally consistent with training on GSM8K, but ARC performance remains
+close to chance-like performance. After SmolTalk SFT, the scores fell by a further
 0.34, 2.39, and 0.91 points respectively relative to Stage 1. The surprising
 loss of the GSM8K gain suggests interference or catastrophic forgetting: full
 fine-tuning on general dialogue updates every weight without replaying the
@@ -370,7 +387,7 @@ runs, but the larger ARC-Challenge drop and complete loss of GSM8K successes
 show that better conversational adaptation did not imply better benchmark
 reasoning.
 
-\subsection*{LoRA and QLoRA}
+\subsection{LoRA and QLoRA}
 
 Full fine-tuning updates every model parameter. LoRA instead freezes a weight
 matrix $W$ and learns a low-rank update $BA$, with rank $r$ much smaller than
@@ -389,28 +406,35 @@ the update may unnecessarily reduce capacity. PEFT becomes attractive for
 larger depths, limited GPU memory, or maintaining several task-specific
 adapters.
 
-\clearpage
 \section{Task 4: Inference, Deployment, and Critical Reflection}
 
-\subsection*{Inference and temperature}
+\subsection{Inference and temperature}
 
 Autoregressive inference repeatedly predicts a distribution for the next
 token, samples one token, appends it, and continues until an end token or length
-limit. Temperature rescales logits $z_i$ before softmax,
-$p_i=\exp(z_i/T)/\sum_j\exp(z_j/T)$. A low $T$ sharpens the distribution and
-makes common tokens more likely; a high $T$ flattens it and increases variety
-and risk. At every layer the key--value (KV) cache stores attention keys and
+limit. Temperature rescales logits $z_i$ before softmax:
+\[
+p_i = \frac{\exp(z_i/T)}{\sum_j \exp(z_j/T)}.
+\]
+A low $T$ sharpens the distribution and makes common tokens more likely; a high
+$T$ flattens it and increases variety and risk. At every layer the key--value
+(KV) cache stores attention keys and
 values for earlier tokens. Each decoding step therefore computes only the new
 token's projections rather than running the whole prefix again, changing
 repeated prefix work into a cache lookup plus one-token computation.
 
-I generated all five prompts at $T=0.1$, 0.7, and 1.5 with top-$k=50$ and a
+I launched nanochat's inference server and web UI using the final SFT
+checkpoint and interacted with the model before running the controlled
+temperature experiments described below. I generated all five prompts at
+$T=0.1$, 0.7, and 1.5 with top-$k=50$ and a
 128-token limit. Five representative excerpts are shown below; all 15 outputs
 are saved in \texttt{task4\_samples.json}.
 
-\begin{table}[ht]
+\begin{table*}[t]
 \centering
 \footnotesize
+\caption{Representative generations from the final SFT checkpoint.}
+\label{tab:task4-samples}
 \begin{tabularx}{\textwidth}{@{}p{2.2cm}p{0.7cm}Yp{3.6cm}@{}}
 \toprule
 Prompt & $T$ & Output excerpt & Observation \\
@@ -427,9 +451,7 @@ Food-waste tips & 1.5 & "To find the perfect ground of compost... ask their
 eggs..." & Greater novelty, but grammar and semantic control fail. \\
 \bottomrule
 \end{tabularx}
-\caption{Representative generations from the final SFT checkpoint.}
-\label{tab:task4-samples}
-\end{table}
+\end{table*}
 
 In this model, lowering temperature did not make answers correct: it exposed
 the highest-probability repetition loops. At 0.7, outputs used more varied and
@@ -438,7 +460,7 @@ At 1.5, diversity rose further while sentence structure and topic control
 deteriorated. Temperature changes how uncertainty is sampled; it cannot add
 knowledge that training did not produce.
 
-\subsection*{Production hardening}
+\subsection{Production hardening}
 
 \begin{enumerate}
 \item Put an authenticated HTTPS API gateway in front of inference, with
@@ -451,11 +473,15 @@ limits, and add output safety checks and privacy-aware audit logs. The current
 calculator path should never become unrestricted Python evaluation.
 \end{enumerate}
 
-\subsection*{Capability comparison}
+\subsection{Capability comparison}
 
 \begin{table}[ht]
 \centering
 \small
+\caption{Published comparisons. Stentor uses normalized ARC accuracy and
+zero-shot GSM8K; Qwen uses ARC accuracy and five-shot GSM8K.}
+\label{tab:task4-comparison}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 Model & Parameters & ARC-Easy & ARC-Challenge & GSM8K \\
@@ -465,9 +491,7 @@ Stentor3-20M & 20M & 33.75\% & 22.53\% & 0.76\% \\
 Qwen2.5-0.5B-Instruct & 494M & 65.66\% & 30.20\% & 21.46\% \\
 \bottomrule
 \end{tabular}
-\caption{Published comparisons. Stentor uses normalized ARC accuracy and
-zero-shot GSM8K; Qwen uses ARC accuracy and five-shot GSM8K.}
-\label{tab:task4-comparison}
+}
 \end{table}
 
 The Stentor scores come from its
@@ -483,7 +507,7 @@ post-training, producing a large GSM8K gap. The comparison shows that parameter
 count alone is insufficient: data volume and quality, training duration, and
 alignment data determine whether capacity turns into usable knowledge.
 
-\subsection*{Critical reflection: environmental cost}
+\subsection{Critical reflection: environmental cost}
 
 I estimated operational emissions using the ML CO$_2$ Impact method
 \href{https://arxiv.org/abs/1910.09700}{(Lacoste et al., 2019)}: multiply
@@ -504,7 +528,7 @@ runs, network and storage, and the embodied emissions of manufacturing the
 computer. TDP is also a rated maximum rather than measured wall power.
 
 For scale, four hours on eight
-\href{https://www.nvidia.com/en-au/data-center/h200/}{700 W H100 SXM GPUs}
+\href{https://www.nvidia.com/en-eu/data-center/h100/}{700 W H100 SXM GPUs}
 requires about 22.4 kWh of GPU energy, or 4.8 kg CO$_2$ on the same grid before
 data-centre overhead.
 That is roughly 37 times the GPU energy of this experiment. The comparison
@@ -521,13 +545,19 @@ proxy.
 \clearpage
 \section*{AI Tool Self-Disclosure}
 
-\textbf{1. Use.} Yes. I used OpenAI Codex between 25 and 27 September 2026.
+\textbf{1. Use.} Yes. I used OpenAI Codex and OpenAI ChatGPT between 25 and 27
+September 2026.
 
-\textbf{2. Purpose and scope.} I used it for learning and understanding,
-coding and debugging, interpreting experimental logs, locating public sources,
-and drafting and checking the LaTeX report across Tasks 0--4.
+\textbf{2. OpenAI Codex.} I used Codex for coding and debugging, interpreting
+experimental logs, locating public sources, and drafting and checking the
+LaTeX report across Tasks 0--4.
 
-\textbf{3. Critical assessment.} The tool was useful for tracing code paths,
+\textbf{3. OpenAI ChatGPT.} I used ChatGPT to plan the experimental workflow,
+discuss the interpretation of results, and review the report for completeness.
+Its suggestions were critically verified against the assignment specification,
+experiment logs, repository code, and cited sources.
+
+\textbf{4. Critical assessment.} Codex was useful for tracing code paths,
 organising results, and identifying a Windows-specific \texttt{SIGALRM}
 failure. Its output was not accepted without checking: numerical claims were
 verified against saved JSON/W\&B logs, implementation claims against the
@@ -535,7 +565,7 @@ repository, and external claims against linked model cards, papers, and energy
 data. The built-in LaTeX compiler also failed to initialise on this Windows
 environment, so final PDF layout still required review in the editor preview.
 
-\textbf{4. Acknowledgement.} I critically verified the assisted work and
+\textbf{5. Acknowledgement.} I critically verified the assisted work and
 accept responsibility for the accuracy and validity of the submitted report.
 
 \end{document}
