@@ -389,4 +389,153 @@ the update may unnecessarily reduce capacity. PEFT becomes attractive for
 larger depths, limited GPU memory, or maintaining several task-specific
 adapters.
 
+\clearpage
+\section{Task 4: Inference, Deployment, and Critical Reflection}
+
+\subsection*{Inference and temperature}
+
+Autoregressive inference repeatedly predicts a distribution for the next
+token, samples one token, appends it, and continues until an end token or length
+limit. Temperature rescales logits $z_i$ before softmax,
+$p_i=\exp(z_i/T)/\sum_j\exp(z_j/T)$. A low $T$ sharpens the distribution and
+makes common tokens more likely; a high $T$ flattens it and increases variety
+and risk. At every layer the key--value (KV) cache stores attention keys and
+values for earlier tokens. Each decoding step therefore computes only the new
+token's projections rather than running the whole prefix again, changing
+repeated prefix work into a cache lookup plus one-token computation.
+
+I generated all five prompts at $T=0.1$, 0.7, and 1.5 with top-$k=50$ and a
+128-token limit. Five representative excerpts are shown below; all 15 outputs
+are saved in \texttt{task4\_samples.json}.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}p{2.2cm}p{0.7cm}Yp{3.6cm}@{}}
+\toprule
+Prompt & $T$ & Output excerpt & Observation \\
+\midrule
+Why is the sky blue? & 0.1 & "The sky blue is a blue blue, a blue blue..."
+& Stable but trapped in a repetition loop. \\
+Train distance & 0.7 & "To determine which travel is a convenient and
+cost-effective way..." & Fluent surface form, but it never computes 150 km. \\
+Four-line rain poem & 0.7 & "A summer morning / A summer evening morning..."
+& More varied vocabulary, but it ignores rain and the four-line constraint. \\
+Dutch explanation & 0.7 & "Here's the code snippet that accomplishes the
+task..." & It switches to irrelevant English and invalid Python. \\
+Food-waste tips & 1.5 & "To find the perfect ground of compost... ask their
+eggs..." & Greater novelty, but grammar and semantic control fail. \\
+\bottomrule
+\end{tabularx}
+\caption{Representative generations from the final SFT checkpoint.}
+\label{tab:task4-samples}
+\end{table}
+
+In this model, lowering temperature did not make answers correct: it exposed
+the highest-probability repetition loops. At 0.7, outputs used more varied and
+often grammatical phrases but still failed facts, arithmetic, and constraints.
+At 1.5, diversity rose further while sentence structure and topic control
+deteriorated. Temperature changes how uncertainty is sampled; it cannot add
+knowledge that training did not produce.
+
+\subsection*{Production hardening}
+
+\begin{enumerate}
+\item Put an authenticated HTTPS API gateway in front of inference, with
+per-user rate limits, request-size limits, quotas, and strict input validation.
+\item Replace single-request execution with a bounded queue, dynamic batching,
+multiple workers, backpressure, cancellation, health checks, and latency/error
+metrics. This improves throughput without allowing overload to exhaust memory.
+\item Isolate tool execution in a restricted process with time and resource
+limits, and add output safety checks and privacy-aware audit logs. The current
+calculator path should never become unrestricted Python evaluation.
+\end{enumerate}
+
+\subsection*{Capability comparison}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Model & Parameters & ARC-Easy & ARC-Challenge & GSM8K \\
+\midrule
+Ours, final SFT & 13.0M & 25.04\% & 23.21\% & 0.00\% \\
+Stentor3-20M & 20M & 33.75\% & 22.53\% & 0.76\% \\
+Qwen2.5-0.5B-Instruct & 494M & 65.66\% & 30.20\% & 21.46\% \\
+\bottomrule
+\end{tabular}
+\caption{Published comparisons. Stentor uses normalized ARC accuracy and
+zero-shot GSM8K; Qwen uses ARC accuracy and five-shot GSM8K.}
+\label{tab:task4-comparison}
+\end{table}
+
+The Stentor scores come from its
+\href{https://huggingface.co/StentorLabs/Stentor3-20M/blob/main/README.md}{model
+card}; the Qwen BF16 scores come from a published
+\href{https://huggingface.co/OPEA/Qwen2.5-0.5B-Instruct-int4-sym-inc/blob/7cac2d1805faa26fa70b1004ad977bcc5af571b6/README.md}{evaluation
+table}. Protocol differences mean the numbers are context rather than a
+controlled ranking. The nearest-size model is still better on ARC-Easy and
+GSM8K, while both are around chance on ARC-Challenge. Stentor reports about
+8.5 billion training tokens, compared with only 55 million pre-training tokens
+for our model. Qwen combines far greater capacity with much more data and
+post-training, producing a large GSM8K gap. The comparison shows that parameter
+count alone is insufficient: data volume and quality, training duration, and
+alignment data determine whether capacity turns into usable knowledge.
+
+\subsection*{Critical reflection: environmental cost}
+
+I estimated operational emissions using the ML CO$_2$ Impact method
+\href{https://arxiv.org/abs/1910.09700}{(Lacoste et al., 2019)}: multiply
+runtime by device power and regional grid carbon intensity. The recorded
+training time was 36.1 minutes for pre-training, 109.3 minutes for
+mid-training, and 58.4 minutes for SFT, or 3.40 GPU-hours. NVIDIA specifies
+\href{https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5060-family/}{180 W}
+total graphics power for the RTX 5060 Ti. This gives
+\[
+E = 3.40\ \mathrm{h}\times0.180\ \mathrm{kW}=0.611\ \mathrm{kWh}.
+\]
+The Dutch electricity-production factor averaged
+\href{https://ned.nl/nl/achtergrond/halfjaaroverzicht-energiedata}{0.215
+kg CO$_2$/kWh} in the first half of 2025, so the GPU-only estimate is
+$0.611\times0.215=0.131$ kg CO$_2$, about 130 g. This is not a complete
+life-cycle result: it excludes CPU and memory power, evaluation and failed
+runs, network and storage, and the embodied emissions of manufacturing the
+computer. TDP is also a rated maximum rather than measured wall power.
+
+For scale, four hours on eight
+\href{https://www.nvidia.com/en-au/data-center/h200/}{700 W H100 SXM GPUs}
+requires about 22.4 kWh of GPU energy, or 4.8 kg CO$_2$ on the same grid before
+data-centre overhead.
+That is roughly 37 times the GPU energy of this experiment. The comparison
+also shows why "cheap" is not equivalent to "low-impact." Price depends on
+hardware ownership, subsidies, utilisation, and cloud markets; carbon depends
+on actual energy, location, cooling, and hardware production. Cheap experiments
+can also encourage many retries and broad hyperparameter searches, so their
+aggregate impact may exceed one expensive but carefully planned run. Small
+models, early smoke tests, reusing checkpoints, efficient hardware, and
+carbon-aware scheduling reduce waste. Environmental claims should therefore
+report energy and assumptions directly rather than using financial cost as a
+proxy.
+
+\clearpage
+\section*{AI Tool Self-Disclosure}
+
+\textbf{1. Use.} Yes. I used OpenAI Codex between 25 and 27 September 2026.
+
+\textbf{2. Purpose and scope.} I used it for learning and understanding,
+coding and debugging, interpreting experimental logs, locating public sources,
+and drafting and checking the LaTeX report across Tasks 0--4.
+
+\textbf{3. Critical assessment.} The tool was useful for tracing code paths,
+organising results, and identifying a Windows-specific \texttt{SIGALRM}
+failure. Its output was not accepted without checking: numerical claims were
+verified against saved JSON/W\&B logs, implementation claims against the
+repository, and external claims against linked model cards, papers, and energy
+data. The built-in LaTeX compiler also failed to initialise on this Windows
+environment, so final PDF layout still required review in the editor preview.
+
+\textbf{4. Acknowledgement.} I critically verified the assisted work and
+accept responsibility for the accuracy and validity of the submitted report.
+
 \end{document}
